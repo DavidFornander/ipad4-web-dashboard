@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iPad 4 Dashboard</title>
+  <script src="/htmx.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    h1 {
+      font-size: 56px;
+      margin: 0 0 20px 0;
+      font-weight: 200;
+      letter-spacing: -1px;
+      color: #fff;
+      flex-shrink: 0;
+      /* Don't let header shrink */
+    }
+
+    #departures {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      justify-content: space-around;
+      width: 100%;
+      flex: 1;
+      /* Take up all remaining space */
+      min-height: 0;
+      /* Crucial for nested scrolling in flexbox */
+      gap: 30px;
+      padding: 0 10px 10px 10px;
+      overflow: hidden;
+    }
+
+    .mode-column {
+      flex: 1;
+      background: #111;
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid #222;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .scroll-area {
+      flex: 1;
+      overflow: hidden;
+      /* Changed from scroll to hidden for animation */
+      position: relative;
+      min-height: 0;
+    }
+
+    .scroll-content {
+      display: block;
+    }
+
+    .animate-scroll {
+      animation-name: scroll-vertical;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+    }
+
+    @keyframes scroll-vertical {
+      0% {
+        transform: translateY(0);
+      }
+
+      100% {
+        transform: translateY(-50%);
+      }
+    }
+
+    /* Pause animation on touch for better UX */
+    .scroll-area:active .animate-scroll {
+      animation-play-state: paused;
+    }
+
+    .departure {
+      font-size: 22px;
+      margin: 8px 0;
+      padding: 12px 15px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-left: 4px solid #333;
+    }
+
+    .loop-separator {
+      padding: 20px 0;
+      text-align: center;
+      border-top: 1px dashed #333;
+      border-bottom: 1px dashed #333;
+      margin: 15px 0;
+      color: #444;
+      font-size: 14px;
+      letter-spacing: 3px;
+      font-weight: bold;
+    }
+
+    /* Mode specific colors */
+    .mode-TRAIN .departure {
+      border-left-color: #33a1fd;
+    }
+
+    .line-number {
+      font-weight: 600;
+      color: #fff;
+      background: #333;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 10px;
+      font-size: 18px;
+    }
+
+    .destination {
+      flex-grow: 1;
+      font-weight: 400;
+      color: #eee;
+    }
+
+    .time {
+      font-weight: 600;
+      color: #ffdd00;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mode-header {
+      font-size: 20px;
+      color: #888;
+      margin: 0 0 15px 0;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      font-weight: 600;
+      text-align: left;
+      border-bottom: 1px solid #333;
+      padding-bottom: 10px;
+      flex-shrink: 0;
+    }
+
+    .mode-header::after {
+      display: none;
+    }
+
+    .update-time {
+      position: fixed;
+      bottom: 15px;
+      right: 20px;
+      color: #444;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .error {
+      color: #ff4444;
+      padding: 10px;
+      border: 1px solid #ff4444;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Zinkensdamm</h1>
+
+  <!-- Visible container -->
+  <div id="departures">
+    Loading...
+  </div>
+
+  <!-- Hidden buffer for background updates -->
+  <div id="buffer" style="display: none;" hx-get="/api/departures" hx-trigger="load, every 30s" hx-swap="innerHTML">
+  </div>
+
+  <div id="footer-update" class="update-time"></div>
+
+  <script>
+    var pendingUpdate = false;
+
+    // Listen for HTMX loading new data into the buffer
+    document.body.addEventListener('htmx:afterOnLoad', function (evt) {
+      if (evt.detail.target.id === 'buffer') {
+        var departures = document.getElementById('departures');
+        var isInitialLoad = departures.innerHTML.indexOf('mode-column') === -1;
+        var hasAnimation = departures.querySelector('.animate-scroll') !== null;
+
+        if (isInitialLoad || !hasAnimation) {
+          departures.innerHTML = document.getElementById('buffer').innerHTML;
+          pendingUpdate = false;
+          console.log('Immediate swap (initial or no animation).');
+        } else {
+          pendingUpdate = true;
+          console.log('New data received in buffer, waiting for animation loop...');
+        }
+      }
+    });
+
+    // Function to perform the swap
+    function swapContent() {
+      if (pendingUpdate) {
+        var buffer = document.getElementById('buffer');
+        var departures = document.getElementById('departures');
+
+        // Only swap if buffer has content (not an error)
+        if (buffer.innerHTML.indexOf('mode-column') !== -1) {
+          departures.innerHTML = buffer.innerHTML;
+          pendingUpdate = false;
+          console.log('Animation loop reached: Content swapped smoothly.');
+        }
+      }
+    }
+
+    // Listen for animation iteration on the scroll content
+    // We use delegation because the .scroll-content elements are dynamic
+    document.addEventListener('animationiteration', function (e) {
+      if (e.target.classList.contains('animate-scroll')) {
+        swapContent();
+      }
+    }, true);
+
+    // iOS 10 Safari support (prefixed event)
+    document.addEventListener('webkitAnimationIteration', function (e) {
+      if (e.target.classList.contains('animate-scroll')) {
+        swapContent();
+      }
+    }, true);
+  </script>
+</body>
+
+</html>
