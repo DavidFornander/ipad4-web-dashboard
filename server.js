@@ -33,10 +33,10 @@ const BOUNDS = {
     west: 18.02
   },
   stockholm: {
-    north: 59.42,
-    south: 59.25,
-    east: 18.20,
-    west: 17.85
+    north: 59.36,
+    south: 59.29,
+    east: 18.14,
+    west: 17.98
   }
 };
 

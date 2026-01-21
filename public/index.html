@@ -31,18 +31,22 @@
       z-index: 1;
     }
 
-    /* Departures overlay panel */
+    /* Departures slide-out panel */
     .departures-panel {
       position: absolute;
-      top: 20px;
-      left: 20px;
+      top: 0;
+      right: -400px;
       width: 380px;
-      max-height: calc(100vh - 80px);
-      background: rgba(0, 0, 0, 0.85);
-      border-radius: 16px;
-      border: 1px solid #333;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.92);
+      border-left: 1px solid #333;
       z-index: 1000;
-      overflow: hidden;
+      overflow-y: auto;
+      transition: right 0.3s ease;
+    }
+
+    .departures-panel.open {
+      right: 0;
     }
 
     .panel-header {
@@ -51,6 +55,9 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      position: sticky;
+      top: 0;
+      background: rgba(0, 0, 0, 0.95);
     }
 
     .panel-header h1 {
@@ -84,6 +91,85 @@
 
     .refresh-btn.loading {
       opacity: 0.5;
+      pointer-events: none;
+    }
+
+    /* Overlay backdrop when panel is open */
+    .panel-backdrop {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .panel-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Peek bar - always visible on right edge */
+    .peek-bar {
+      position: absolute;
+      top: 80px;
+      right: 0;
+      width: 56px;
+      bottom: 80px;
+      background: rgba(0, 0, 0, 0.75);
+      border-left: 1px solid #333;
+      border-top-left-radius: 12px;
+      border-bottom-left-radius: 12px;
+      z-index: 998;
+      display: flex;
+      flex-direction: column;
+      padding: 10px 6px;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      overflow: hidden;
+    }
+
+    .peek-bar:hover {
+      background: rgba(0, 0, 0, 0.85);
+      width: 62px;
+    }
+
+    .peek-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .peek-line {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      padding: 3px 6px;
+      border-radius: 4px;
+      min-width: 32px;
+      text-align: center;
+    }
+
+    .peek-time {
+      font-size: 11px;
+      font-weight: 600;
+      color: #ffdd00;
+    }
+
+    .peek-divider {
+      height: 1px;
+      background: #333;
+      margin: 2px 0;
+    }
+
+    .peek-bar.hidden {
+      opacity: 0;
       pointer-events: none;
     }
 
@@ -243,7 +329,16 @@
 <body>
   <div id="map"></div>
 
-  <div class="departures-panel">
+  <!-- Peek bar - always visible preview, click to toggle panel -->
+  <div class="peek-bar" id="peekBar" onclick="togglePanel()">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Backdrop for closing panel -->
+  <div class="panel-backdrop" id="panelBackdrop" onclick="togglePanel()"></div>
+
+  <!-- Slide-out departures panel -->
+  <div class="departures-panel" id="departuresPanel">
     <div class="panel-header">
       <h1>Zinkensdamm</h1>
       <button class="refresh-btn" id="refreshBtn" onclick="forceRefresh()">Refresh</button>
@@ -268,15 +363,15 @@
       day: {
         name: 'Daytime',
         bounds: 'stockholm',
-        center: [59.33, 18.05],
-        zoom: 12,
+        center: [59.325, 18.07],
+        zoom: 14,
         pollInterval: 60000  // 60 seconds
       },
       night: {
         name: 'Night',
         bounds: 'stockholm',
-        center: [59.33, 18.05],
-        zoom: 12,
+        center: [59.325, 18.07],
+        zoom: 14,
         pollInterval: 600000  // 10 minutes
       }
     };
@@ -366,15 +461,20 @@
                 minute: '2-digit'
               });
 
+              var seenIds = {};
+
+              // Filter to only show lines that pass through Zinkensdamm
+              var filteredVehicles = vehicles.filter(function(v) {
+                return zinkensdammLines.has(v.line) || zinkensdammLines.size === 0;
+              });
+
               var modeLabel = MODES[currentMode].name;
               var interval = MODES[currentMode].pollInterval / 1000;
               statusEl.innerHTML = '<span class="mode-indicator ' + currentMode + '"></span>' +
-                vehicles.length + ' vehicles | ' + modeLabel + ' (' + interval + 's) | ' + timestamp;
+                filteredVehicles.length + ' vehicles | ' + modeLabel + ' (' + interval + 's) | ' + timestamp;
               statusEl.className = 'status-bar';
 
-              var seenIds = {};
-
-              vehicles.forEach(function (v) {
+              filteredVehicles.forEach(function (v) {
                 seenIds[v.id] = true;
 
                 if (markers[v.id]) {
@@ -415,6 +515,8 @@
 
     // ==================== DEPARTURES ====================
     var MAX_DEPARTURES_PER_MODE = 4;
+    // Lines that serve Zinkensdamm (fallback if departures don't load)
+    var zinkensdammLines = new Set(['13', '14', '4', '66', '74', '96']);
 
     function updateDepartures() {
       var xhr = new XMLHttpRequest();
@@ -423,7 +525,17 @@
         if (xhr.readyState === 4 && xhr.status === 200) {
           try {
             var data = JSON.parse(xhr.responseText);
+
+            // Extract lines that serve Zinkensdamm
+            zinkensdammLines.clear();
+            if (data.departures) {
+              data.departures.forEach(function(dep) {
+                zinkensdammLines.add(dep.line.designation);
+              });
+            }
+
             renderDepartures(data);
+            updatePeekBar(data);
           } catch (e) {
             document.getElementById('departures').innerHTML = '<div style="color:#ff4444">Error loading</div>';
           }
@@ -497,6 +609,52 @@
       }
       if (mode === 'TRAIN') return '#33a1fd';
       return '#666';
+    }
+
+    // ==================== PEEK BAR ====================
+    var peekBarData = [];
+
+    function updatePeekBar(data) {
+      var peekBar = document.getElementById('peekBar');
+
+      if (!data || !data.departures || data.departures.length === 0) {
+        peekBar.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">No data</div>';
+        return;
+      }
+
+      var now = new Date();
+      var filtered = data.departures.filter(function (dep) {
+        var expected = new Date(dep.expected);
+        var diff = (expected - now) / (1000 * 60);
+        return diff >= 5;
+      });
+
+      // Take first 6 departures across all modes
+      var top = filtered.slice(0, 6);
+
+      var html = '';
+      top.forEach(function(dep, i) {
+        var color = getLineColor(dep.line.transport_mode, dep.line.designation);
+        html += '<div class="peek-item">';
+        html += '<span class="peek-line" style="background:' + color + '">' + dep.line.designation + '</span>';
+        html += '<span class="peek-time">' + dep.display + '</span>';
+        html += '</div>';
+        if (i < top.length - 1) {
+          html += '<div class="peek-divider"></div>';
+        }
+      });
+
+      peekBar.innerHTML = html;
+    }
+
+    // ==================== PANEL TOGGLE ====================
+    var panelOpen = false;
+
+    function togglePanel() {
+      panelOpen = !panelOpen;
+      document.getElementById('departuresPanel').classList.toggle('open', panelOpen);
+      document.getElementById('panelBackdrop').classList.toggle('open', panelOpen);
+      document.getElementById('peekBar').classList.toggle('hidden', panelOpen);
     }
 
     // ==================== FORCE REFRESH ====================
