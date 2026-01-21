@@ -4,8 +4,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>iPad 4 Dashboard</title>
-  <script src="/htmx.min.js"></script>
+  <title>Zinkensdamm - Live</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -16,234 +17,550 @@
       color: #ffffff;
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
       margin: 0;
-      padding: 20px;
+      padding: 0;
       height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
       overflow: hidden;
     }
 
-    h1 {
-      font-size: 56px;
-      margin: 0 0 20px 0;
-      font-weight: 200;
-      letter-spacing: -1px;
-      color: #fff;
-      flex-shrink: 0;
-      /* Don't let header shrink */
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1;
     }
 
-    #departures {
-      display: flex;
-      flex-direction: row;
-      flex-wrap: nowrap;
-      justify-content: space-around;
-      width: 100%;
-      flex: 1;
-      /* Take up all remaining space */
-      min-height: 0;
-      /* Crucial for nested scrolling in flexbox */
-      gap: 30px;
-      padding: 0 10px 10px 10px;
+    /* Departures overlay panel */
+    .departures-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      width: 380px;
+      max-height: calc(100vh - 80px);
+      background: rgba(0, 0, 0, 0.85);
+      border-radius: 16px;
+      border: 1px solid #333;
+      z-index: 1000;
       overflow: hidden;
     }
 
-    .mode-column {
-      flex: 1;
-      background: #111;
-      border-radius: 12px;
-      padding: 15px;
-      border: 1px solid #222;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-
-    .scroll-area {
-      flex: 1;
-      overflow: hidden;
-      /* Changed from scroll to hidden for animation */
-      position: relative;
-      min-height: 0;
-    }
-
-    .scroll-content {
-      display: block;
-    }
-
-    .animate-scroll {
-      animation-name: scroll-vertical;
-      animation-timing-function: linear;
-      animation-iteration-count: infinite;
-    }
-
-    @keyframes scroll-vertical {
-      0% {
-        transform: translateY(0);
-      }
-
-      100% {
-        transform: translateY(-50%);
-      }
-    }
-
-    /* Pause animation on touch for better UX */
-    .scroll-area:active .animate-scroll {
-      animation-play-state: paused;
-    }
-
-    .departure {
-      font-size: 22px;
-      margin: 8px 0;
-      padding: 12px 15px;
-      background: #1a1a1a;
-      border-radius: 8px;
+    .panel-header {
+      padding: 20px;
+      border-bottom: 1px solid #333;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-left: 4px solid #333;
     }
 
-    .loop-separator {
-      padding: 20px 0;
-      text-align: center;
-      border-top: 1px dashed #333;
-      border-bottom: 1px dashed #333;
-      margin: 15px 0;
-      color: #444;
-      font-size: 14px;
-      letter-spacing: 3px;
-      font-weight: bold;
+    .panel-header h1 {
+      font-size: 28px;
+      margin: 0;
+      font-weight: 300;
+      letter-spacing: -0.5px;
     }
 
-    /* Mode specific colors */
-    .mode-TRAIN .departure {
-      border-left-color: #33a1fd;
+    .refresh-btn {
+      background: transparent;
+      border: 1px solid #444;
+      color: #888;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.2s;
     }
 
-    .line-number {
+    .refresh-btn:hover {
+      border-color: #666;
+      color: #fff;
+    }
+
+    .refresh-btn:active {
+      background: #333;
+    }
+
+    .refresh-btn.loading {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .panel-content {
+      padding: 15px;
+    }
+
+    .mode-section {
+      margin-bottom: 15px;
+    }
+
+    .mode-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .mode-title {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
       font-weight: 600;
+    }
+
+    .departure-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      margin-bottom: 6px;
+      border-left: 3px solid #333;
+    }
+
+    .departure-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .line-badge {
+      font-weight: 700;
+      font-size: 14px;
       color: #fff;
       background: #333;
-      padding: 2px 8px;
+      padding: 4px 10px;
       border-radius: 4px;
-      margin-right: 10px;
-      font-size: 18px;
+      margin-right: 12px;
+      min-width: 36px;
+      text-align: center;
     }
 
-    .destination {
-      flex-grow: 1;
-      font-weight: 400;
-      color: #eee;
+    .departure-dest {
+      flex: 1;
+      font-size: 15px;
+      color: #ddd;
     }
 
-    .time {
+    .departure-time {
+      font-size: 16px;
       font-weight: 600;
       color: #ffdd00;
       font-variant-numeric: tabular-nums;
     }
 
-    .mode-header {
-      font-size: 20px;
-      color: #888;
-      margin: 0 0 15px 0;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-      font-weight: 600;
-      text-align: left;
-      border-bottom: 1px solid #333;
-      padding-bottom: 10px;
-      flex-shrink: 0;
-    }
-
-    .mode-header::after {
-      display: none;
-    }
-
-    .update-time {
-      position: fixed;
-      bottom: 15px;
-      right: 20px;
-      color: #444;
-      font-size: 12px;
+    /* Status bar */
+    .status-bar {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      color: #666;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 1px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px 14px;
+      border-radius: 8px;
+      z-index: 1000;
     }
 
-    .error {
+    .status-bar.error {
       color: #ff4444;
-      padding: 10px;
       border: 1px solid #ff4444;
+    }
+
+    .mode-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .mode-indicator.rush { background: #22c55e; }
+    .mode-indicator.day { background: #3b82f6; }
+    .mode-indicator.night { background: #6b7280; }
+
+    /* Vehicle markers */
+    .vehicle-marker {
+      background: none;
+      border: none;
+    }
+
+    /* Floating line number - no box, just text with shadow */
+    .vehicle-label {
+      position: absolute;
+      font-size: 22px;
+      font-weight: 800;
+      text-shadow:
+        -2px -2px 0 #000,
+        2px -2px 0 #000,
+        -2px 2px 0 #000,
+        2px 2px 0 #000,
+        0 0 8px rgba(0,0,0,0.8);
+      white-space: nowrap;
+      font-family: "Helvetica Neue", sans-serif;
+    }
+
+    /* Leaflet popup styling */
+    .leaflet-popup-content-wrapper {
+      background: rgba(0, 0, 0, 0.9);
+      color: #fff;
+      border-radius: 12px;
+      border: 1px solid #444;
+    }
+
+    .leaflet-popup-tip {
+      background: rgba(0, 0, 0, 0.9);
+    }
+
+    .leaflet-popup-content {
+      margin: 14px;
+    }
+
+    .popup-line {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .popup-info {
+      font-size: 14px;
+      color: #888;
+    }
+
+    /* Leaflet zoom controls */
+    .leaflet-control-zoom {
+      border: none !important;
+    }
+
+    .leaflet-control-zoom a {
+      background: rgba(0, 0, 0, 0.8) !important;
+      color: #fff !important;
+      border: 1px solid #333 !important;
     }
   </style>
 </head>
 
 <body>
-  <h1>Zinkensdamm</h1>
+  <div id="map"></div>
 
-  <!-- Visible container -->
-  <div id="departures">
-    Loading...
+  <div class="departures-panel">
+    <div class="panel-header">
+      <h1>Zinkensdamm</h1>
+      <button class="refresh-btn" id="refreshBtn" onclick="forceRefresh()">Refresh</button>
+    </div>
+    <div class="panel-content" id="departures">
+      Loading departures...
+    </div>
   </div>
 
-  <!-- Hidden buffer for background updates -->
-  <div id="buffer" style="display: none;" hx-get="/api/departures" hx-trigger="load, every 30s" hx-swap="innerHTML">
-  </div>
-
-  <div id="footer-update" class="update-time"></div>
+  <div id="status" class="status-bar">Loading...</div>
 
   <script>
-    var pendingUpdate = false;
-
-    // Listen for HTMX loading new data into the buffer
-    document.body.addEventListener('htmx:afterOnLoad', function (evt) {
-      if (evt.detail.target.id === 'buffer') {
-        var departures = document.getElementById('departures');
-        var isInitialLoad = departures.innerHTML.indexOf('mode-column') === -1;
-        var hasAnimation = departures.querySelector('.animate-scroll') !== null;
-
-        if (isInitialLoad || !hasAnimation) {
-          departures.innerHTML = document.getElementById('buffer').innerHTML;
-          pendingUpdate = false;
-          console.log('Immediate swap (initial or no animation).');
-        } else {
-          pendingUpdate = true;
-          console.log('New data received in buffer, waiting for animation loop...');
-        }
+    // ==================== MODE CONFIGURATION ====================
+    var MODES = {
+      rush: {
+        name: 'Rush Hour',
+        bounds: 'sodermalm',
+        center: [59.315, 18.06],
+        zoom: 15,
+        pollInterval: 30000  // 30 seconds
+      },
+      day: {
+        name: 'Daytime',
+        bounds: 'stockholm',
+        center: [59.33, 18.05],
+        zoom: 12,
+        pollInterval: 60000  // 60 seconds
+      },
+      night: {
+        name: 'Night',
+        bounds: 'stockholm',
+        center: [59.33, 18.05],
+        zoom: 12,
+        pollInterval: 600000  // 10 minutes
       }
-    });
+    };
 
-    // Function to perform the swap
-    function swapContent() {
-      if (pendingUpdate) {
-        var buffer = document.getElementById('buffer');
-        var departures = document.getElementById('departures');
+    function getCurrentMode() {
+      var hour = new Date().getHours();
+      if (hour >= 7 && hour < 9) return 'rush';
+      if (hour >= 9 && hour < 23) return 'day';
+      return 'night';
+    }
 
-        // Only swap if buffer has content (not an error)
-        if (buffer.innerHTML.indexOf('mode-column') !== -1) {
-          departures.innerHTML = buffer.innerHTML;
-          pendingUpdate = false;
-          console.log('Animation loop reached: Content swapped smoothly.');
+    var currentMode = getCurrentMode();
+    var lastMode = currentMode;
+
+    // ==================== MAP SETUP ====================
+    var config = MODES[currentMode];
+    var map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView(config.center, config.zoom);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    var markers = {};
+
+    function getVehicleColor(line) {
+      var lineNum = parseInt(line);
+      if (lineNum >= 10 && lineNum <= 19) {
+        if (lineNum >= 17 && lineNum <= 19) return '#0089ca';
+        if (lineNum >= 13 && lineNum <= 14) return '#dc2626';
+        return '#4caf50';
+      }
+      if (lineNum >= 1 && lineNum <= 9) return '#2563eb';
+      if (!isNaN(lineNum)) return '#dc2626';
+      return '#888888';
+    }
+
+    // Bigger marker with floating line number (no box)
+    function createVehicleIcon(line, bearing) {
+      var color = getVehicleColor(line);
+      var rotation = bearing || 0;
+
+      var html = '<div style="position: relative; width: 44px; height: 44px;">' +
+        // Floating label above - just text with shadow, no box
+        '<div class="vehicle-label" style="position: absolute; top: -32px; left: 50%; transform: translateX(-50%); color: ' + color + ';">' + line + '</div>' +
+        // Arrow/circle marker
+        '<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">' +
+        '<g transform="rotate(' + rotation + ' 22 22)">' +
+        '<circle cx="22" cy="22" r="16" fill="' + color + '" stroke="#000" stroke-width="3"/>' +
+        '<circle cx="22" cy="22" r="16" fill="none" stroke="#fff" stroke-width="2"/>' +
+        '<polygon points="22,8 29,26 22,20 15,26" fill="#fff"/>' +
+        '</g>' +
+        '</svg>' +
+        '</div>';
+
+      return L.divIcon({
+        className: 'vehicle-marker',
+        html: html,
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
+        popupAnchor: [0, -30]
+      });
+    }
+
+    // ==================== VEHICLE UPDATES ====================
+    function updateVehicles() {
+      var mode = MODES[currentMode];
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', '/api/vehicles?bounds=' + mode.bounds, true);
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          var statusEl = document.getElementById('status');
+          if (xhr.status === 200) {
+            try {
+              var vehicles = JSON.parse(xhr.responseText);
+
+              if (vehicles.error) {
+                statusEl.innerHTML = '<span class="mode-indicator ' + currentMode + '"></span>' + vehicles.error;
+                statusEl.className = 'status-bar error';
+                return;
+              }
+
+              var timestamp = new Date().toLocaleTimeString('sv-SE', {
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+
+              var modeLabel = MODES[currentMode].name;
+              var interval = MODES[currentMode].pollInterval / 1000;
+              statusEl.innerHTML = '<span class="mode-indicator ' + currentMode + '"></span>' +
+                vehicles.length + ' vehicles | ' + modeLabel + ' (' + interval + 's) | ' + timestamp;
+              statusEl.className = 'status-bar';
+
+              var seenIds = {};
+
+              vehicles.forEach(function (v) {
+                seenIds[v.id] = true;
+
+                if (markers[v.id]) {
+                  markers[v.id].setLatLng([v.lat, v.lng]);
+                  markers[v.id].setIcon(createVehicleIcon(v.line, v.bearing));
+                } else {
+                  var marker = L.marker([v.lat, v.lng], {
+                    icon: createVehicleIcon(v.line, v.bearing)
+                  });
+
+                  var speedKmh = v.speed ? Math.round(v.speed * 3.6) : 0;
+                  marker.bindPopup(
+                    '<div class="popup-line">Line ' + v.line + '</div>' +
+                    '<div class="popup-info">Speed: ' + speedKmh + ' km/h</div>'
+                  );
+
+                  marker.addTo(map);
+                  markers[v.id] = marker;
+                }
+              });
+
+              for (var id in markers) {
+                if (!seenIds[id]) {
+                  map.removeLayer(markers[id]);
+                  delete markers[id];
+                }
+              }
+
+            } catch (e) {
+              statusEl.innerHTML = '<span class="mode-indicator ' + currentMode + '"></span>Error: ' + e.message;
+              statusEl.className = 'status-bar error';
+            }
+          }
         }
+      };
+      xhr.send();
+    }
+
+    // ==================== DEPARTURES ====================
+    var MAX_DEPARTURES_PER_MODE = 4;
+
+    function updateDepartures() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', '/api/departures', true);
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            renderDepartures(data);
+          } catch (e) {
+            document.getElementById('departures').innerHTML = '<div style="color:#ff4444">Error loading</div>';
+          }
+        }
+      };
+      xhr.send();
+    }
+
+    function renderDepartures(data) {
+      var container = document.getElementById('departures');
+
+      if (!data.departures || data.departures.length === 0) {
+        container.innerHTML = '<div style="color:#666;padding:20px;">No departures</div>';
+        return;
+      }
+
+      var now = new Date();
+      var filtered = data.departures.filter(function (dep) {
+        var expected = new Date(dep.expected);
+        var diff = (expected - now) / (1000 * 60);
+        return diff >= 5;
+      });
+
+      var groups = {};
+      var modeOrder = ['METRO', 'BUS', 'TRAIN', 'TRAM'];
+      var modeNames = {
+        'METRO': 'Tunnelbana',
+        'BUS': 'Buss',
+        'TRAIN': 'Pendeltåg',
+        'TRAM': 'Spårvagn'
+      };
+
+      filtered.forEach(function (dep) {
+        var mode = dep.line.transport_mode;
+        if (!groups[mode]) groups[mode] = [];
+        groups[mode].push(dep);
+      });
+
+      var html = '';
+
+      modeOrder.forEach(function (mode) {
+        var deps = groups[mode];
+        if (!deps || deps.length === 0) return;
+
+        var topDeps = deps.slice(0, MAX_DEPARTURES_PER_MODE);
+
+        html += '<div class="mode-section">';
+        html += '<div class="mode-title">' + (modeNames[mode] || mode) + '</div>';
+
+        topDeps.forEach(function (dep) {
+          var color = getLineColor(mode, dep.line.designation);
+          html += '<div class="departure-item" style="border-left-color:' + color + '">';
+          html += '<span class="line-badge" style="background:' + color + '">' + dep.line.designation + '</span>';
+          html += '<span class="departure-dest">' + dep.destination + '</span>';
+          html += '<span class="departure-time">' + dep.display + '</span>';
+          html += '</div>';
+        });
+
+        html += '</div>';
+      });
+
+      container.innerHTML = html || '<div style="color:#666;padding:20px;">No departures >5 min</div>';
+    }
+
+    function getLineColor(mode, designation) {
+      if (mode === 'METRO') return '#dc2626';
+      if (mode === 'BUS') {
+        var num = parseInt(designation);
+        if (!isNaN(num) && num < 10) return '#2563eb';
+        return '#dc2626';
+      }
+      if (mode === 'TRAIN') return '#33a1fd';
+      return '#666';
+    }
+
+    // ==================== FORCE REFRESH ====================
+    function forceRefresh() {
+      var btn = document.getElementById('refreshBtn');
+      btn.classList.add('loading');
+      btn.textContent = '...';
+
+      updateVehicles();
+      updateDepartures();
+
+      setTimeout(function() {
+        btn.classList.remove('loading');
+        btn.textContent = 'Refresh';
+      }, 1000);
+    }
+
+    // ==================== MODE SWITCHING ====================
+    function checkModeChange() {
+      var newMode = getCurrentMode();
+      if (newMode !== currentMode) {
+        currentMode = newMode;
+        var config = MODES[currentMode];
+
+        // Clear all markers when switching modes
+        for (var id in markers) {
+          map.removeLayer(markers[id]);
+        }
+        markers = {};
+
+        // Animate to new view
+        map.flyTo(config.center, config.zoom, { duration: 1.5 });
+
+        // Update immediately
+        updateVehicles();
+
+        console.log('Switched to mode:', currentMode);
       }
     }
 
-    // Listen for animation iteration on the scroll content
-    // We use delegation because the .scroll-content elements are dynamic
-    document.addEventListener('animationiteration', function (e) {
-      if (e.target.classList.contains('animate-scroll')) {
-        swapContent();
-      }
-    }, true);
+    // ==================== ADAPTIVE POLLING ====================
+    var pollTimer = null;
 
-    // iOS 10 Safari support (prefixed event)
-    document.addEventListener('webkitAnimationIteration', function (e) {
-      if (e.target.classList.contains('animate-scroll')) {
-        swapContent();
-      }
-    }, true);
+    function scheduleNextPoll() {
+      if (pollTimer) clearTimeout(pollTimer);
+
+      var interval = MODES[currentMode].pollInterval;
+      pollTimer = setTimeout(function() {
+        checkModeChange();
+        updateVehicles();
+        scheduleNextPoll();
+      }, interval);
+    }
+
+    // ==================== INIT ====================
+    updateVehicles();
+    updateDepartures();
+    scheduleNextPoll();
+
+    // Check mode every minute
+    setInterval(checkModeChange, 60000);
+
+    // Update departures every 30 seconds
+    setInterval(updateDepartures, 30000);
   </script>
 </body>
 

@@ -6,7 +6,9 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "express": "^5.2.1",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "protobufjs": "^7.4.0"
   }
 }
